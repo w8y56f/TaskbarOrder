@@ -30,3 +30,10 @@ The build script packages corresponding project source and notices with this exp
 - Package SHA-256: `79207b10fe243eb1a8dcdc29beceba2f472f145ed31f147f7ae3f43b0659c9f7`.
 - The build script generates C++/WinRT projections from its metadata. The package is subject to its bundled Microsoft Windows UI Library license, copied to `licenses/Microsoft.UI.Xaml.txt` in the binary package.
 - No WinUI runtime binaries are redistributed or installed. The engine queries the ItemsRepeater already provided by the Windows taskbar.
+
+## Microsoft.Web.WebView2 (build metadata only)
+
+- Version: 1.0.2849.39, the dependency declared by Microsoft.UI.Xaml 2.8.7.
+- Source: https://www.nuget.org/packages/Microsoft.Web.WebView2/1.0.2849.39
+- Package SHA-256: `099ec21f62e0e29ef9d9a991d096421efb256bdfdb64984216395736043560fd`.
+- Metadata resolves referenced types during projection generation. No WebView2 runtime or loader is packaged or required by TaskbarOrder. Package license is copied to `licenses/Microsoft.Web.WebView2.txt`.

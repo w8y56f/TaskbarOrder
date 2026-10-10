@@ -23,6 +23,16 @@ try {
     }
     $mux = Join-Path $deps 'mux'
     Expand-Archive $archive -DestinationPath $mux -Force
+    # WinUI metadata references WebView2 even though TaskbarOrder uses no browser control.
+    $webArchive = Join-Path $deps 'Microsoft.Web.WebView2.1.0.2849.39.zip'
+    if (!(Test-Path $webArchive)) {
+        Invoke-WebRequest 'https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/1.0.2849.39' -OutFile $webArchive
+    }
+    if ((Get-FileHash $webArchive -Algorithm SHA256).Hash.ToLowerInvariant() -ne '099ec21f62e0e29ef9d9a991d096421efb256bdfdb64984216395736043560fd') {
+        throw 'Microsoft.Web.WebView2 package hash mismatch'
+    }
+    $web = Join-Path $deps 'webview2'
+    Expand-Archive $webArchive -DestinationPath $web -Force
     $sdkRoot = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits/10'
     $sdk = Get-ChildItem (Join-Path $sdkRoot 'bin') -Directory |
         Where-Object { $_.Name -match '^10\.0\.\d+\.\d+$' -and (Test-Path (Join-Path $_.FullName 'x64/cppwinrt.exe')) } |
@@ -30,7 +40,7 @@ try {
     if (!$sdk) { throw 'Windows SDK cppwinrt.exe not found' }
     $projection = Join-Path $deps 'include'
     # Generate OS and WinUI projections with the same generator/base.h version.
-    & (Join-Path $sdk.FullName 'x64/cppwinrt.exe') -input $sdk.Name -input (Join-Path $mux 'lib/uap10.0/Microsoft.UI.Xaml.winmd') -output $projection
+    & (Join-Path $sdk.FullName 'x64/cppwinrt.exe') -input $sdk.Name -input (Join-Path $mux 'lib/uap10.0/Microsoft.UI.Xaml.winmd') -input (Join-Path $web 'lib/Microsoft.Web.WebView2.Core.winmd') -output $projection
     if ($LASTEXITCODE -ne 0) { throw 'C++/WinRT projection generation failed' }
     & cmake -S . -B $buildDir -G $Generator -A x64 -DBUILD_TESTING=ON "-DCPPWINRT_INCLUDE_DIR=$projection"
     if ($LASTEXITCODE -ne 0) { throw 'CMake configuration failed' }
@@ -42,6 +52,7 @@ try {
     & cmake --install $buildDir --config $Configuration --prefix $distDir
     if ($LASTEXITCODE -ne 0) { throw 'Packaging failed' }
     Copy-Item (Join-Path $mux 'license.txt') (Join-Path $distDir 'licenses/Microsoft.UI.Xaml.txt')
+    Copy-Item (Join-Path $web 'LICENSE.txt') (Join-Path $distDir 'licenses/Microsoft.Web.WebView2.txt')
     # Include corresponding source alongside this GPL prototype distribution.
     $sourceDir = Join-Path $distDir 'source'
     New-Item -ItemType Directory -Force $sourceDir | Out-Null

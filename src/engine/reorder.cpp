@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Derived from m417z's Taskbar Thumbnail Reorder 1.1.5.
 #include "engine/reorder.hpp"
+#include "../../third_party/minhook/src/hde/hde64.h"
 #include "common/accessor.hpp"
 #include "common/order.hpp"
 #include "common/symbol_catalog.hpp"
@@ -117,6 +118,65 @@ PointerArray* checked_array(void* raw) {
 std::optional<std::size_t> decode_items_offset(const unsigned char* code) {
     if (!readable(code, 16)) return {};
     return task_items_offset(std::span(code, 16));
+}
+// Report only instruction roles and member offsets. Never copy DLL bytes or
+// disassembly into the diagnostic log, and never use this profile to enable hooks.
+std::wstring task_items_diagnostic(const unsigned char* code) {
+    std::wstring result = L"GetNumItems layout profile:";
+    std::size_t cursor = 0;
+    for (unsigned index = 0; index < 6 && cursor < 48; ++index) {
+        if (!readable(code + cursor, 15)) { result += L" unreadable"; break; }
+        // HDE64 predates CET. Recognize ENDBR64 explicitly before decoding.
+        if (code[cursor] == 0xf3 && code[cursor + 1] == 0x0f &&
+            code[cursor + 2] == 0x1e && code[cursor + 3] == 0xfa) {
+            result += L" [" + std::to_wstring(index + 1) + L": branch-protection prefix]";
+            cursor += 4;
+            continue;
+        }
+        hde64s instruction{};
+        const auto length = hde64_disasm(code + cursor, &instruction);
+        if (!length || instruction.flags & F_ERROR) { result += L" undecodable"; break; }
+        result += L" [" + std::to_wstring(index + 1) + L": ";
+        if (instruction.opcode == 0x8b && instruction.flags & F_MODRM &&
+            instruction.modrm_mod != 3 && !(instruction.flags & F_SIB)) {
+            const unsigned source = instruction.modrm_rm + (instruction.rex_b ? 8 : 0);
+            const unsigned target = instruction.modrm_reg + (instruction.rex_r ? 8 : 0);
+            const std::int64_t displacement = (instruction.flags & F_DISP8)
+                ? static_cast<std::int8_t>(instruction.disp.disp8)
+                : (instruction.flags & F_DISP32)
+                    ? static_cast<std::int32_t>(instruction.disp.disp32) : 0;
+            if (source == 1 && target == 0) {
+                result += instruction.rex_w ? L"pointer from this" : L"count from this";
+                result += L" offset=" + std::to_wstring(displacement);
+            } else if (source == 0 && target == 0) {
+                result += instruction.rex_w ? L"pointer from pointer" : L"count from pointer";
+                result += L" offset=" + std::to_wstring(displacement);
+            } else {
+                result += L"other memory load";
+            }
+        } else if (instruction.opcode == 0xc3 || instruction.opcode == 0xc2) {
+            result += L"return";
+        } else if (instruction.opcode == 0xe9 || instruction.opcode == 0xeb ||
+                   (instruction.opcode == 0xff && instruction.flags & F_MODRM && instruction.modrm_reg == 4)) {
+            result += L"jump";
+        } else if (instruction.opcode == 0xe8) {
+            result += L"call";
+        } else if (instruction.opcode == 0x85 || instruction.opcode == 0xa9) {
+            result += L"test";
+        } else if (instruction.opcode == 0x74 || instruction.opcode == 0x75 ||
+                   (instruction.opcode == 0x0f && instruction.opcode2 >= 0x80 && instruction.opcode2 <= 0x8f)) {
+            result += L"conditional branch";
+        } else if (instruction.opcode == 0x90 || instruction.opcode == 0xcc) {
+            result += L"padding";
+        } else {
+            result += L"other instruction";
+        }
+        result += L"]";
+        cursor += length;
+        if (instruction.opcode == 0xc3 || instruction.opcode == 0xc2 || instruction.opcode == 0xe9 ||
+            instruction.opcode == 0xeb) break;
+    }
+    return result;
 }
 void* task_list_interface(void* object) {
     auto slots = static_cast<void**>(object);
@@ -444,7 +504,10 @@ void initialize(const Plan& plan) {
             throw std::runtime_error("Function symbol is not executable");
     }
     auto offset = decode_items_offset(static_cast<const unsigned char*>(symbols[SymGroupNumItems]));
-    if (!offset) throw std::runtime_error("Unsupported task item layout; no hooks installed");
+    if (!offset) {
+        log(task_items_diagnostic(static_cast<const unsigned char*>(symbols[SymGroupNumItems])), true);
+        throw std::runtime_error("Unsupported task item layout; no hooks installed. See engine.log for the layout profile");
+    }
     itemsOffset = *offset;
     taskListVtable = symbols[SymTaskListVtable];
     numItems = reinterpret_cast<NumItems>(symbols[SymGroupNumItems]);

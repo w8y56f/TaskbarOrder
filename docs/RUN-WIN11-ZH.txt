@@ -1,10 +1,10 @@
-TaskbarOrder 0.1.0（Windows 11 x64 实验版）
+TaskbarOrder 0.1.1（Windows 11 x64 实验版）
 ==============================================
 
 文件说明
 --------
 TaskbarOrder.exe              双击运行的控制程序
-TaskbarOrderHook-0.1.0.dll    调序引擎，必须与 EXE 放在同一目录
+TaskbarOrderHook-0.1.1.dll    调序引擎，必须与 EXE 放在同一目录
 
 首次使用
 --------
@@ -22,6 +22,8 @@ TaskbarOrderHook-0.1.0.dll    调序引擎，必须与 EXE 放在同一目录
 当前验证状态
 ------------
 本包已经交叉编译为 PE32+ x86-64，并检查了系统 DLL 依赖。
-尚未在你的 Windows 11 Enterprise 25H2、Build 26200.9445 上运行验证。
-如果“准备符号”或拖动失败，请点击“打开日志”，把 environment.txt、
-environment.json 和 taskbar-order.log 发回开发环境继续定位。
+在 Windows 11 Enterprise 25H2、Build 26200.9445 上，0.1.0 的符号准备成功，
+启用时触发任务项布局保护检查。0.1.1 会把结构化布局摘要写入 engine.log；
+不记录 DLL 原始字节，也不会在检查失败后安装调序钩子。
+请点击“打开日志”，找到 engine.log 中以 GetNumItems layout profile: 开头的
+一行，以及其后的初始化失败信息。经公司规定允许后，提供这两行即可。

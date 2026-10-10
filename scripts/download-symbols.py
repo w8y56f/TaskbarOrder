@@ -12,6 +12,10 @@ import pathlib
 import re
 import urllib.request
 
+PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
+VERSION = (PROJECT_ROOT / 'VERSION').read_text(encoding='utf-8').strip()
+USER_AGENT = f'TaskbarOrder/{VERSION}'
+
 
 def requests_from_report(report: dict) -> list[tuple[str, str]]:
     if report.get('format') != 1 or report.get('architecture') != 'x64':
@@ -54,7 +58,7 @@ def main() -> None:
         url = f'https://msdl.microsoft.com/download/symbols/{pdb}/{key}/{pdb}'
         print(f'Downloading {pdb} ({key}) …', flush=True)
         try:
-            request = urllib.request.Request(url, headers={'User-Agent': 'TaskbarOrder/0.1'})
+            request = urllib.request.Request(url, headers={'User-Agent': USER_AGENT})
             with urllib.request.urlopen(request, timeout=30) as response, temporary.open('wb') as output:
                 first = response.read(65536)
                 if not first.startswith(b'Microsoft C/C++ MSF'):

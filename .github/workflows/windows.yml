@@ -1,8 +1,8 @@
-name: Build Windows prototype
+name: Build Windows x64
 on:
   workflow_dispatch:
   push:
-    paths: ['src/**', 'tests/**', 'third_party/**', 'CMakeLists.txt', 'scripts/**', '.github/workflows/windows.yml']
+    paths: ['src/**', 'tests/**', 'third_party/**', 'VERSION', 'CMakeLists.txt', 'scripts/**', '.github/workflows/windows.yml']
   pull_request:
 permissions:
   contents: read
@@ -16,6 +16,6 @@ jobs:
         run: ./scripts/build-windows.ps1
       - uses: actions/upload-artifact@v4
         with:
-          name: TaskbarOrder-x64-experimental
-          path: dist/TaskbarOrder-x64.zip
+          name: TaskbarOrder-win11-x64
+          path: dist/TaskbarOrder-*-win11-x64.zip
           if-no-files-found: error

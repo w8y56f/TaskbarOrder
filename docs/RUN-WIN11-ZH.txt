@@ -1,10 +1,10 @@
-TaskbarOrder 0.1（Windows 11 x64 实验版）
-============================================
+TaskbarOrder 0.1.0（Windows 11 x64 实验版）
+==============================================
 
 文件说明
 --------
 TaskbarOrder.exe              双击运行的控制程序
-TaskbarOrderHook-0.1.dll      调序引擎，必须与 EXE 放在同一目录
+TaskbarOrderHook-0.1.0.dll    调序引擎，必须与 EXE 放在同一目录
 
 首次使用
 --------

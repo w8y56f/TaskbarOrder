@@ -21,7 +21,7 @@ std::filesystem::path plan_path(const Environment& env) {
 }
 void download(const std::wstring& remotePath, const std::filesystem::path& destination,
               const std::function<bool()>& canceled) {
-    InternetHandle session(WinHttpOpen(L"TaskbarOrder/0.1", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
+    InternetHandle session(WinHttpOpen(kUserAgent, WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
                                       WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0));
     if (!session.h) throw std::runtime_error(utf8(error_text()));
     WinHttpSetTimeouts(session.h, 15000, 15000, 15000, 30000);

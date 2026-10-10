@@ -2,7 +2,7 @@
 
 一个不依赖 Windhawk 的 Windows 11 任务栏调序实验原型。C++ / Win32，便携 EXE + DLL，无 .NET、无安装服务、无管理员权限申请。
 
-**当前状态：源代码原型。已在 macOS 检查可移植的排序逻辑；尚未在 Windows 上编译或运行。不能视为已可用的成品，也未确认支持你的 VDI 版本。**
+**当前版本：0.1.0 实验原型。已交叉编译为 Windows x64 EXE + DLL，但尚未在目标 Windows 11 VDI 中运行。不能视为已验证的成品。**
 
 ## 第一版范围
 
@@ -13,7 +13,9 @@
 - 跨应用分组、修改 AppUserModelID、直接拖动任务栏按钮和重启后记忆排序均不在此版范围。
 - 符号或内部布局不匹配时拒绝启用。匹配成功只代表前置检查通过，不代表运行兼容性已验证。
 
-需求已确认：目标是悬停应用图标后出现的多个窗口预览卡片之间调序。VDI 版本为 Windows 11 Enterprise 25H2、OS Build 26200.9445；处理器架构仍待环境检测确认，当前构建目标是 x64。
+需求已确认：目标是悬停应用图标后出现的多个窗口预览卡片之间调序。VDI 版本为 Windows 11 Enterprise 25H2、OS Build 26200.9445，处理器架构为 x64。
+
+根目录的 [`VERSION`](VERSION) 是唯一的软件版本来源。CMake 使用它生成程序界面版本、Windows EXE/DLL 文件版本、manifest 和带版本号的核心 DLL；打包脚本也使用它生成发布文件名。
 
 ## 文件结构
 
@@ -37,7 +39,7 @@ docs/            架构、已知限制和 Windows 验证步骤
 ./scripts/build-windows.ps1
 ```
 
-脚本生成 `dist/TaskbarOrder-x64.zip`，包含 EXE、DLL、许可证、说明和对应源代码。项目附带 Windows CI 配置，但尚未上传仓库或启动云端构建。
+脚本生成 `dist/TaskbarOrder-0.1.0-win11-x64.zip`，包含 EXE、DLL、版本文件、许可证、说明和对应源代码。项目已配置 GitHub Actions Windows 构建。
 
 手动构建等价命令：
 
@@ -61,7 +63,7 @@ ctest --test-dir build-mac --output-on-failure
 
 ## 构建后的操作
 
-1. 解压，保持 `TaskbarOrder.exe` 和 `TaskbarOrderHook-0.1.dll` 在同一目录。
+1. 解压，保持 `TaskbarOrder.exe` 和 `TaskbarOrderHook-0.1.0.dll` 在同一目录。
 2. 运行 EXE；默认只检测环境，不自动启用 Hook。
 3. 点击“准备符号”。首次仅从 Microsoft 下载两个模块匹配的公开 PDB；不上传窗口内容。符号解析在 EXE 中完成，不在 Explorer 内联网。
 4. 点击“启用调序”。悬停应用图标，在弹出的预览卡片上按住左键拖动。

@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #pragma once
+#include "version.hpp"
 #include <windows.h>
 #include <array>
 #include <cstdint>
 #include <string>
 
 namespace tbo {
-inline constexpr wchar_t kCommandMessage[] = L"TaskbarOrder.0.1.Command";
-inline constexpr wchar_t kHookFile[] = L"TaskbarOrderHook-0.1.dll";
 inline constexpr std::uint32_t kMagic = 0x54424F31;
 inline constexpr std::size_t kSymbolCount = 16;
 enum class Command : std::uint32_t { Start = 1, Stop = 2 };

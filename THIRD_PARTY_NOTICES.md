@@ -9,7 +9,7 @@
 - Downloaded source SHA-256: `e1847e6a787402c8abd0f84c5651e839e3d93de832e6764a9549c6cc1cd70207`.
 - Derived portions: internal taskbar symbol declarations, DPA capture, group/view reordering, and classic thumbnail-window dragging in `src/engine/reorder.cpp` and `src/common/symbol_catalog.hpp`.
 
-Changes in this project: independent controller/DLL lifecycle; removed Windhawk APIs; local exact-PDB identity checks and symbol preparation; retained classic and newer XAML hover-preview paths; replaced the XAML `ItemsRepeater` dependency with bounded visual-tree/model matching so the independent build only needs Windows SDK projections; added pointer/layout checks and an explicit accessor decoder; controller lifetime gating; logs and diagnostics. The original author has not reviewed or endorsed this derivative.
+Changes in this project: independent controller/DLL lifecycle; removed Windhawk APIs; local exact-PDB identity checks and symbol preparation; retained classic and newer XAML hover-preview paths; uses the XAML `ItemsRepeater` live indices and captured thumbnail collection for window mapping; added pointer/layout checks and an explicit accessor decoder; controller lifetime gating; logs and diagnostics. The original author has not reviewed or endorsed this derivative.
 
 No Windhawk executable, service or SDK is required at runtime or build time.
 
@@ -23,3 +23,10 @@ No Windhawk executable, service or SDK is required at runtime or build time.
 - Linked statically; users do not need to install MinHook.
 
 The build script packages corresponding project source and notices with this experimental binary distribution. Microsoft Windows libraries and public symbols are not included in the source distribution.
+
+## Microsoft.UI.Xaml (build metadata only)
+
+- Version: 2.8.7; official package: https://www.nuget.org/packages/Microsoft.UI.Xaml/2.8.7
+- Package SHA-256: `79207b10fe243eb1a8dcdc29beceba2f472f145ed31f147f7ae3f43b0659c9f7`.
+- The build script generates C++/WinRT projections from its metadata. The package is subject to its bundled Microsoft Windows UI Library license, copied to `licenses/Microsoft.UI.Xaml.txt` in the binary package.
+- No WinUI runtime binaries are redistributed or installed. The engine queries the ItemsRepeater already provided by the Windows taskbar.

@@ -23,6 +23,10 @@ enum SymbolIndex : std::size_t {
     SymModernThumbnailCtorNew,
     SymModernExtendedClick,
     SymModernPointerMoved,
+    SymModernThumbnails,
+    SymModernVectorSize,
+    SymModernVectorGetAt,
+    SymModernTargetItemKey,
 };
 
 struct SymbolSpec {
@@ -53,6 +57,10 @@ inline constexpr std::array<SymbolSpec, kSymbolCount> kSymbols{{
     {0, LR"(public: __cdecl winrt::WindowsUdk::UI::Shell::implementation::TaskItemThumbnail::TaskItemThumbnail(struct winrt::WindowsUdk::UI::Shell::TaskItem const &,struct ITaskGroup *,struct ITaskItem *,struct ITaskListUI *,struct IWICImagingFactory *,bool))", {}, false, true},
     {0, LR"(public: virtual long __cdecl CTaskListWnd::HandleExtendedUIClick(struct ITaskGroup *,struct ITaskItem *,struct winrt::Windows::System::LauncherOptions const &))", {}, false, true},
     {1, LR"(public: virtual int __cdecl winrt::impl::produce<struct winrt::Taskbar::implementation::TaskItemThumbnailList,struct winrt::Windows::UI::Xaml::Controls::IControlOverrides>::OnPointerMoved(void *))", {}, false, true},
+    {0, LR"(public: struct winrt::Windows::Foundation::Collections::IObservableVector<struct winrt::WindowsUdk::UI::Shell::TaskItemThumbnail> __cdecl winrt::WindowsUdk::UI::Shell::implementation::TaskGroup::Thumbnails(void))", {}, false, true},
+    {0, LR"(public: __cdecl winrt::impl::consume_Windows_Foundation_Collections_IVector<struct winrt::Windows::Foundation::Collections::IObservableVector<struct winrt::WindowsUdk::UI::Shell::TaskItemThumbnail>,struct winrt::WindowsUdk::UI::Shell::TaskItemThumbnail>::Size(void)const )", {}, false, true},
+    {0, LR"(public: __cdecl winrt::impl::consume_Windows_Foundation_Collections_IVector<struct winrt::Windows::Foundation::Collections::IObservableVector<struct winrt::WindowsUdk::UI::Shell::TaskItemThumbnail>,struct winrt::WindowsUdk::UI::Shell::TaskItemThumbnail>::GetAt(unsigned int)const )", {}, false, true},
+    {1, LR"(private: void __cdecl winrt::Taskbar::implementation::HoverFlyoutModel::TargetItemKey(struct winrt::hstring const &))", {}, false, true},
 }};
 
 inline bool supports_classic(const Plan& plan) {
@@ -62,7 +70,9 @@ inline bool supports_classic(const Plan& plan) {
 }
 inline bool supports_modern(const Plan& plan) {
     return (plan.rvas[SymModernThumbnailCtorOld] || plan.rvas[SymModernThumbnailCtorNew]) &&
-        plan.rvas[SymModernExtendedClick] && plan.rvas[SymModernPointerMoved];
+        plan.rvas[SymModernExtendedClick] && plan.rvas[SymModernPointerMoved] &&
+        plan.rvas[SymModernThumbnails] && plan.rvas[SymModernVectorSize] &&
+        plan.rvas[SymModernVectorGetAt] && plan.rvas[SymModernTargetItemKey];
 }
 inline bool supports_any_thumbnail(const Plan& plan) {
     return supports_classic(plan) || supports_modern(plan);

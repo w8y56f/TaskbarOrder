@@ -27,6 +27,7 @@
 #include <winrt/Windows.UI.Xaml.Controls.h>
 #include <winrt/Windows.UI.Xaml.Input.h>
 #include <winrt/Windows.UI.Xaml.Media.h>
+#include <winrt/Microsoft.UI.Xaml.Controls.h>
 
 namespace tbo::engine {
 namespace {
@@ -75,6 +76,24 @@ ModernThumbnailCtorOld modernCtorOldOriginal{};
 ModernThumbnailCtorNew modernCtorNewOriginal{};
 ModernExtendedClick modernClickOriginal{};
 ModernPointerMoved modernMovedOriginal{};
+using ModernThumbnails = void*(WINAPI*)(void*, void*);
+using ModernVectorSize = int(WINAPI*)(void*);
+using ModernVectorGetAt = void*(WINAPI*)(void*, void**, int);
+using ModernTargetItemKey = void(WINAPI*)(void*, void*);
+ModernThumbnails modernThumbnailsOriginal{};
+ModernVectorSize modernVectorSize{};
+ModernVectorGetAt modernVectorGetAt{};
+ModernTargetItemKey modernTargetOriginal{};
+thread_local bool capturingThumbnails{};
+winrt::weak_ref<winrt::Windows::Foundation::IInspectable> currentThumbnails;
+std::atomic<unsigned long long> diagnosticFlags{};
+// At most one line per stage per activation; no titles, paths, raw bytes or addresses.
+void trace_stage(unsigned stage, const wchar_t* message) noexcept {
+    const auto bit = 1ull << stage;
+    if (!(diagnosticFlags.fetch_or(bit) & bit)) {
+        try { log(message, true); } catch (...) {}
+    }
+}
 bool modernReordering{};
 DWORD lastMoveTick{};
 struct ThumbnailMapping {
@@ -387,15 +406,18 @@ void add_thumbnail_mapping(winrt::Windows::Foundation::IInspectable object,
     thumbnailMappings.push_back({object, group, item});
 }
 void capture_constructed_thumbnail(void* result, void* group, void* item) {
-    if (!result || !group || !item) return;
-    winrt::Windows::Foundation::IInspectable object{nullptr};
-    auto identity = reinterpret_cast<IUnknown*>(
-        static_cast<unsigned char*>(result) + 2 * sizeof(void*));
-    if (SUCCEEDED(identity->QueryInterface(
-            winrt::guid_of<winrt::Windows::Foundation::IInspectable>(),
-            winrt::put_abi(object))) && object) {
-        add_thumbnail_mapping(object, group, item);
-    }
+    if (GetCurrentThreadId() != shellThread || !result || !group || !item) return;
+    try {
+        winrt::Windows::Foundation::IInspectable object{nullptr};
+        auto identity = reinterpret_cast<IUnknown*>(
+            static_cast<unsigned char*>(result) + 2 * sizeof(void*));
+        if (SUCCEEDED(identity->QueryInterface(
+                winrt::guid_of<winrt::Windows::Foundation::IInspectable>(),
+                winrt::put_abi(object))) && object) {
+            add_thumbnail_mapping(object, group, item);
+            trace_stage(0, L"XAML: thumbnail/window mapping captured");
+        }
+    } catch (...) { trace_stage(1, L"XAML: thumbnail mapping capture failed"); }
 }
 void* WINAPI modern_ctor_old_hook(void* p1, void* p2, void* group, void* item,
                                   void* p5, void* p6, void* p7, bool p8) {
@@ -410,7 +432,7 @@ void* WINAPI modern_ctor_new_hook(void* p1, void* p2, void* group, void* item,
     return result;
 }
 HRESULT WINAPI modern_click_hook(void* self, void* group, void* item, void* options) {
-    if (modernReordering) {
+    if (active() && modernReordering) {
         modernReordering = false;
         return S_OK;
     }
@@ -422,20 +444,43 @@ using DependencyObject = winrt::Windows::UI::Xaml::DependencyObject;
 using PointerArgs = winrt::Windows::UI::Xaml::Input::PointerRoutedEventArgs;
 using VisualTree = winrt::Windows::UI::Xaml::Media::VisualTreeHelper;
 
-void collect_thumbnail_views(const DependencyObject& root,
-                             std::vector<FrameworkElement>& output,
-                             unsigned depth = 0) {
-    if (!root || depth > 24 || output.size() >= 256) return;
-    int count = VisualTree::GetChildrenCount(root);
-    if (count < 0 || count > 512) return;
-    for (int i = 0; i < count && output.size() < 256; ++i) {
-        auto child = VisualTree::GetChild(root, i);
-        if (!child) continue;
-        if (winrt::get_class_name(child) == L"Taskbar.TaskItemThumbnailView") {
-            if (auto view = child.try_as<FrameworkElement>()) output.push_back(view);
-        }
-        collect_thumbnail_views(child, output, depth + 1);
+// Find the live repeater, excluding transient thumbnail animation elements.
+FrameworkElement find_repeater(const DependencyObject& root) {
+    std::vector<DependencyObject> pending{root};
+    for (std::size_t cursor = 0; cursor < pending.size() && cursor < 512; ++cursor) {
+        auto element = pending[cursor].try_as<FrameworkElement>();
+        if (element && element.Name() == L"TaskItemThumbnailListRepeater") return element;
+        int count = VisualTree::GetChildrenCount(pending[cursor]);
+        if (count < 0 || count > 512) continue;
+        for (int i = 0; i < count && pending.size() < 512; ++i)
+            pending.push_back(VisualTree::GetChild(pending[cursor], i));
     }
+    return nullptr;
+}
+void* WINAPI modern_thumbnails_hook(void* self, void* output) {
+    auto result = modernThumbnailsOriginal(self, output);
+    if (capturingThumbnails && GetCurrentThreadId() == shellThread && result) {
+        try {
+            winrt::Windows::Foundation::IInspectable collection{nullptr};
+            auto unknown = *static_cast<IUnknown**>(result);
+            if (unknown && SUCCEEDED(unknown->QueryInterface(
+                    winrt::guid_of<winrt::Windows::Foundation::IInspectable>(),
+                    winrt::put_abi(collection))) && collection) {
+                currentThumbnails = collection;
+                trace_stage(2, L"XAML: active thumbnail collection captured");
+            }
+        } catch (...) { trace_stage(3, L"XAML: collection capture failed"); }
+    }
+    return result;
+}
+void WINAPI modern_target_hook(void* self, void* key) {
+    if (GetCurrentThreadId() != shellThread) { modernTargetOriginal(self, key); return; }
+    const bool previous = capturingThumbnails;
+    capturingThumbnails = true;
+    struct Restore { bool value; ~Restore() { capturingThumbnails = value; } } restore{previous};
+    // A new flyout must never reuse an expired or unrelated collection.
+    currentThumbnails = {};
+    modernTargetOriginal(self, key);
 }
 bool pointer_inside(const FrameworkElement& element, const PointerArgs& args) {
     const auto point = args.GetCurrentPoint(element).Position();
@@ -471,58 +516,83 @@ std::optional<ThumbnailMapping> mapping_for_object(
     }
     return {};
 }
-std::optional<ThumbnailMapping> mapping_for_view(const FrameworkElement& view) {
-    if (auto mapping = mapping_for_object(view.DataContext())) return mapping;
-    // The exact template differs between 25H2 servicing builds. Search a small
-    // bounded subtree for the element whose DataContext is TaskItemThumbnail.
-    std::vector<DependencyObject> pending{view};
-    for (std::size_t cursor = 0; cursor < pending.size() && pending.size() < 64; ++cursor) {
-        if (!pending[cursor]) continue;
-        auto element = pending[cursor].try_as<FrameworkElement>();
-        if (element) if (auto mapping = mapping_for_object(element.DataContext())) return mapping;
-        int count = VisualTree::GetChildrenCount(pending[cursor]);
-        if (count < 0 || count > 64) continue;
-        for (int i = 0; i < count && pending.size() < 64; ++i)
-            pending.push_back(VisualTree::GetChild(pending[cursor], i));
-    }
-    return {};
-}
 int WINAPI modern_moved_hook(void* self, void* rawArgs) {
     auto original = [&] { return modernMovedOriginal(self, rawArgs); };
-    if (!active()) return original();
+    if (!active()) {
+        if (enabled && GetCurrentThreadId() != shellThread)
+            trace_stage(4, L"XAML: pointer callback is on a different thread; reorder skipped");
+        return original();
+    }
+    trace_stage(5, L"XAML: pointer callback reached taskbar thread");
     try {
         if (!self || !rawArgs) return original();
         if (!GetCapture()) {
             modernReordering = false;
+            trace_stage(6, L"XAML: pointer movement without mouse capture");
             return original();
         }
+        trace_stage(7, L"XAML: mouse capture detected");
         if (GetTickCount() - lastMoveTick <= 60) return original();
         FrameworkElement list{nullptr};
-        static_cast<IUnknown*>(self)->QueryInterface(winrt::guid_of<FrameworkElement>(),
-                                                     winrt::put_abi(list));
+        static_cast<IUnknown*>(self)->QueryInterface(winrt::guid_of<FrameworkElement>(), winrt::put_abi(list));
         PointerArgs args{nullptr};
-        static_cast<IUnknown*>(rawArgs)->QueryInterface(winrt::guid_of<PointerArgs>(),
-                                                        winrt::put_abi(args));
-        if (!list || !args) return original();
-        const auto className = winrt::get_class_name(list);
-        if (className != L"Taskbar.TaskItemThumbnailList" &&
-            className != L"Taskbar.TaskItemThumbnailScrollableList") return original();
-        std::vector<FrameworkElement> views;
-        collect_thumbnail_views(list, views);
-        std::optional<ThumbnailMapping> source, target;
-        for (const auto& view : views) {
-            if (!source && view_pressed(view)) source = mapping_for_view(view);
-            if (!target && pointer_inside(view, args)) target = mapping_for_view(view);
-            if (source && target) break;
+        static_cast<IUnknown*>(rawArgs)->QueryInterface(winrt::guid_of<PointerArgs>(), winrt::put_abi(args));
+        if (!list || !args) {
+            trace_stage(8, L"XAML: list or pointer interface unavailable");
+            return original();
         }
-        if (source && target && source->group == target->group &&
-            source->item != target->item && move_group(source->group, source->item, target->item)) {
+        auto element = find_repeater(list);
+        auto repeater = element ? element.try_as<winrt::Microsoft::UI::Xaml::Controls::ItemsRepeater>() : nullptr;
+        if (!repeater || !repeater.ItemsSourceView()) {
+            trace_stage(9, L"XAML: live ItemsRepeater unavailable");
+            return original();
+        }
+        auto collection = currentThumbnails.get();
+        if (!collection) {
+            trace_stage(10, L"XAML: active collection unavailable; close and reopen the preview");
+            return original();
+        }
+        void* collectionAbi = winrt::get_abi(collection);
+        const int count = repeater.ItemsSourceView().Count();
+        if (count < 2 || count > 4096 || modernVectorSize(&collectionAbi) != count) {
+            trace_stage(11, L"XAML: preview/collection counts do not match or fewer than two items");
+            return original();
+        }
+        int from = -1, to = -1;
+        for (int i = 0; i < count; ++i) {
+            auto item = repeater.TryGetElement(i);
+            auto view = item ? item.try_as<FrameworkElement>() : nullptr;
+            if (!view || winrt::get_class_name(view) != L"Taskbar.TaskItemThumbnailView") continue;
+            if (view_pressed(view)) from = i;
+            if (pointer_inside(view, args)) to = i;
+        }
+        if (from < 0) { trace_stage(12, L"XAML: no pressed thumbnail found"); return original(); }
+        if (to < 0 || from == to) {
+            trace_stage(13, L"XAML: waiting for pointer to enter a different thumbnail");
+            return original();
+        }
+        trace_stage(14, L"XAML: source and target thumbnail indices found");
+        // Adjacent moves allow the taskbar to update its animation/collection state.
+        to = from + (to > from ? 1 : -1);
+        winrt::com_ptr<IUnknown> sourceObject, targetObject;
+        modernVectorGetAt(&collectionAbi, sourceObject.put_void(), from);
+        modernVectorGetAt(&collectionAbi, targetObject.put_void(), to);
+        if (!sourceObject || !targetObject) return original();
+        auto source = mapping_for_object(sourceObject.as<winrt::Windows::Foundation::IInspectable>());
+        auto target = mapping_for_object(targetObject.as<winrt::Windows::Foundation::IInspectable>());
+        if (!source || !target || source->group != target->group || source->item == target->item) {
+            trace_stage(15, L"XAML: thumbnail/window mapping missing or inconsistent; reopen preview or create a new app window");
+            return original();
+        }
+        if (move_group(source->group, source->item, target->item)) {
             modernReordering = true;
             lastMoveTick = GetTickCount();
+        } else {
+            trace_stage(16, L"XAML: group/button-array preflight rejected the move; no reorder performed");
         }
     } catch (...) {
         modernReordering = false;
-        log(L"Modern thumbnail drag canceled after an internal error", true);
+        trace_stage(17, L"XAML: drag canceled after an internal error");
     }
     return original();
 }
@@ -577,6 +647,10 @@ void initialize(const Plan& plan) {
                 hook(symbols[SymModernThumbnailCtorNew], modern_ctor_new_hook, modernCtorNewOriginal);
             hook(symbols[SymModernExtendedClick], modern_click_hook, modernClickOriginal);
             hook(symbols[SymModernPointerMoved], modern_moved_hook, modernMovedOriginal);
+            modernVectorSize = reinterpret_cast<ModernVectorSize>(symbols[SymModernVectorSize]);
+            modernVectorGetAt = reinterpret_cast<ModernVectorGetAt>(symbols[SymModernVectorGetAt]);
+            hook(symbols[SymModernThumbnails], modern_thumbnails_hook, modernThumbnailsOriginal);
+            hook(symbols[SymModernTargetItemKey], modern_target_hook, modernTargetOriginal);
         } else {
             getHoverIndex = reinterpret_cast<GetHoverIndex>(symbols[SymClassicHoverIndex]);
             getThumbnailItem = reinterpret_cast<GetThumbnailItem>(symbols[SymClassicGetItem]);
@@ -620,7 +694,11 @@ bool start(const Plan& plan, DWORD controllerPid, std::wstring& message) {
     enableEvent = gate;
     shellThread = GetCurrentThreadId();
     clear_drag();
+    modernReordering = false;
+    lastMoveTick = 0;
+    diagnosticFlags = 0;
     enabled = true;
+    log(L"Drag diagnostics started; close and reopen the hover preview before dragging", true);
     message = modernMode
         ? L"已启用 25H2/XAML 预览支持：在弹出的预览中按住左键拖动卡片调序。"
         : L"已启用经典预览支持：在弹出的预览中按住左键拖动卡片调序。";
@@ -628,6 +706,7 @@ bool start(const Plan& plan, DWORD controllerPid, std::wstring& message) {
 }
 void stop() noexcept {
     enabled = false;
+    modernReordering = false;
     try { clear_drag(); } catch (...) {}
     if (ownerProcess) { CloseHandle(ownerProcess); ownerProcess = nullptr; }
     if (enableEvent) { CloseHandle(enableEvent); enableEvent = nullptr; }

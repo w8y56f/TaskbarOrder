@@ -171,7 +171,7 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         output = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL,
                                  0, 0, 0, 0, window, nullptr, nullptr, nullptr);
         SendMessageW(output, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-        append(std::wstring(L"TaskbarOrder ") + kVersion + L" — 实验原型\r\n先检测环境，再准备符号，最后启用。\r\n当前目标：Win11 x64 原生任务栏；悬停应用图标后，在弹出的预览中用左键拖动卡片调序。\r\n已加入经典预览和 25H2/XAML 预览两条路径；你的 26200.9445 将使用后者。最小化会收进托盘；关闭程序会停用调序。\r\n");
+        append(std::wstring(L"TaskbarOrder ") + kVersion + L" — 实验原型\r\n首次：检测环境 → 准备符号 → 启用调序。以后缓存匹配时，直接启用即可。\r\n当前目标：Win11 x64 原生任务栏；悬停应用图标后，在弹出的预览中用左键拖动卡片调序。\r\n已加入经典预览和 25H2/XAML 预览两条路径；你的 26200.9445 将使用后者。最小化会收进托盘；关闭程序会停用调序。\r\n");
         buttons(); tray(); SetTimer(window, 1, 2000, nullptr);
         PostMessageW(window, WM_COMMAND, kInspect, 0);
         return 0;

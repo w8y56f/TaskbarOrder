@@ -7,8 +7,8 @@
 #include <string>
 
 namespace tbo {
-inline constexpr std::uint32_t kMagic = 0x54424F31;
-inline constexpr std::size_t kSymbolCount = 16;
+inline constexpr std::uint32_t kMagic = 0x54424F32;
+inline constexpr std::size_t kSymbolCount = 20;
 enum class Command : std::uint32_t { Start = 1, Stop = 2 };
 enum class Status : LONG { Pending = 0, Active = 1, Stopped = 2, Failed = 3 };
 struct ModuleIdentity {

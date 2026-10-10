@@ -39,15 +39,11 @@ docs/            架构、已知限制和 Windows 验证步骤
 ./scripts/build-windows.ps1
 ```
 
-脚本生成 `dist/TaskbarOrder-0.1.0-win11-x64.zip`，包含 EXE、DLL、版本文件、许可证、说明和对应源代码。项目已配置 GitHub Actions Windows 构建。
+脚本在构建时下载并校验 Microsoft.UI.Xaml 2.8.7 元数据，生成 WinUI 2 投影头文件；VDI 不需要安装它。
 
-手动构建等价命令：
+脚本生成 `dist/TaskbarOrder-<VERSION>-win11-x64.zip`，包含 EXE、DLL、版本文件、许可证、说明和对应源代码。项目已配置 GitHub Actions Windows 构建。
 
-```powershell
-cmake -S . -B build-windows -G "Visual Studio 17 2022" -A x64
-cmake --build build-windows --config Release --parallel
-ctest --test-dir build-windows -C Release --output-on-failure
-```
+请优先使用上述脚本，以确保 Windows SDK 和 WinUI 投影由同一版 C++/WinRT 生成。直接使用 CMake 时必须传入包含这两组投影的 `CPPWINRT_INCLUDE_DIR`。
 
 ## Mac 上目前能做什么
 
@@ -82,6 +78,8 @@ python3 scripts/download-symbols.py environment.json --output symbols
 ## 生命周期与限制
 
 停用后，已安装的 Hook 走回原函数，DLL 保持空闲驻留，直到 Explorer 退出，以避免卸载仍在执行的函数。程序不会自动重启 Explorer。控制程序异常退出后，调序入口也会因所有者进程已退出而失效。
+
+日常启动后等自动检测结束，缓存匹配时直接点击“启用调序”即可。0.1.4 新增符号项，升级后需点一次“准备符号”（已有 PDB 可复用）。
 
 Explorer 重启后需要手动重新启用；Windows 更新导致模块身份变化时，需要重新准备符号。更换核心 DLL 版本后需要重启 Explorer 或注销再登录，不能热替换已驻留的核心。
 

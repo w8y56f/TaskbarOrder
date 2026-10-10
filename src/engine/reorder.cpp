@@ -559,6 +559,7 @@ void initialize(const Plan& plan) {
         throw std::runtime_error("Unsupported task item layout; no hooks installed. See engine.log for the layout profile");
     }
     itemsOffset = *offset;
+    log(L"GetNumItems task-item pointer offset validated: " + std::to_wstring(itemsOffset), true);
     taskListVtable = symbols[SymTaskListVtable];
     numItems = reinterpret_cast<NumItems>(symbols[SymGroupNumItems]);
     getButtonGroup = reinterpret_cast<GetButtonGroup>(symbols[SymGetButtonGroup]);

@@ -119,41 +119,82 @@ std::optional<std::size_t> decode_items_offset(const unsigned char* code) {
     if (!readable(code, 16)) return {};
     return task_items_offset(std::span(code, 16));
 }
-// Report only instruction roles and member offsets. Never copy DLL bytes or
-// disassembly into the diagnostic log, and never use this profile to enable hooks.
+// Report structured instruction roles and offsets, never raw DLL bytes.
+// This diagnostic is never used to decide whether hooks may be installed.
 std::wstring task_items_diagnostic(const unsigned char* code) {
-    std::wstring result = L"GetNumItems layout profile:";
+    static constexpr const wchar_t* registers[]{
+        L"AX", L"CX", L"DX", L"BX", L"SP", L"BP", L"SI", L"DI",
+        L"R8", L"R9", L"R10", L"R11", L"R12", L"R13", L"R14", L"R15"
+    };
+    std::wstring result = L"GetNumItems layout profile v2:";
     std::size_t cursor = 0;
-    for (unsigned index = 0; index < 6 && cursor < 48; ++index) {
+    unsigned returns = 0;
+    std::size_t forwardBranchTarget = 0;
+    for (unsigned index = 0; index < 12 && cursor < 80; ++index) {
         if (!readable(code + cursor, 15)) { result += L" unreadable"; break; }
         // HDE64 predates CET. Recognize ENDBR64 explicitly before decoding.
         if (code[cursor] == 0xf3 && code[cursor + 1] == 0x0f &&
             code[cursor + 2] == 0x1e && code[cursor + 3] == 0xfa) {
-            result += L" [" + std::to_wstring(index + 1) + L": branch-protection prefix]";
+            result += L" [at+" + std::to_wstring(cursor) + L" branch-protection prefix]";
             cursor += 4;
             continue;
         }
         hde64s instruction{};
         const auto length = hde64_disasm(code + cursor, &instruction);
         if (!length || instruction.flags & F_ERROR) { result += L" undecodable"; break; }
-        result += L" [" + std::to_wstring(index + 1) + L": ";
-        if (instruction.opcode == 0x8b && instruction.flags & F_MODRM &&
-            instruction.modrm_mod != 3 && !(instruction.flags & F_SIB)) {
-            const unsigned source = instruction.modrm_rm + (instruction.rex_b ? 8 : 0);
-            const unsigned target = instruction.modrm_reg + (instruction.rex_r ? 8 : 0);
-            const std::int64_t displacement = (instruction.flags & F_DISP8)
-                ? static_cast<std::int8_t>(instruction.disp.disp8)
-                : (instruction.flags & F_DISP32)
-                    ? static_cast<std::int32_t>(instruction.disp.disp32) : 0;
-            if (source == 1 && target == 0) {
-                result += instruction.rex_w ? L"pointer from this" : L"count from this";
-                result += L" offset=" + std::to_wstring(displacement);
-            } else if (source == 0 && target == 0) {
-                result += instruction.rex_w ? L"pointer from pointer" : L"count from pointer";
-                result += L" offset=" + std::to_wstring(displacement);
+        result += L" [at+" + std::to_wstring(cursor) + L" ";
+        const bool hasOperand = instruction.flags & F_MODRM;
+        const unsigned source = instruction.modrm_rm + (instruction.rex_b ? 8 : 0);
+        const unsigned target = instruction.modrm_reg + (instruction.rex_r ? 8 : 0);
+        const auto displacement = (instruction.flags & F_DISP8)
+            ? static_cast<std::int64_t>(static_cast<std::int8_t>(instruction.disp.disp8))
+            : (instruction.flags & F_DISP32)
+                ? static_cast<std::int64_t>(static_cast<std::int32_t>(instruction.disp.disp32)) : 0;
+        const auto memory = [&] {
+            std::wstring value = L"[";
+            if (instruction.flags & F_SIB) {
+                if (instruction.modrm_mod == 0 && instruction.sib_base == 5) value += L"absolute";
+                else value += registers[instruction.sib_base + (instruction.rex_b ? 8 : 0)];
+                if (instruction.sib_index != 4 || instruction.rex_x) {
+                    value += L"+";
+                    value += registers[instruction.sib_index + (instruction.rex_x ? 8 : 0)];
+                    value += L"*" + std::to_wstring(1u << instruction.sib_scale);
+                }
+            } else if (instruction.modrm_mod == 0 && instruction.modrm_rm == 5) {
+                value += L"instruction-relative";
             } else {
-                result += L"other memory load";
+                value += registers[source];
             }
+            value += L" offset=" + std::to_wstring(displacement) + L"]";
+            return value;
+        };
+        if (instruction.opcode == 0x8b && hasOperand) {
+            result += instruction.rex_w ? L"load64 " : L"load32 ";
+            result += registers[target];
+            result += L" <- ";
+            result += instruction.modrm_mod == 3 ? registers[source] : memory();
+        } else if (instruction.opcode == 0x89 && hasOperand) {
+            result += instruction.rex_w ? L"store64 " : L"store32 ";
+            result += instruction.modrm_mod == 3 ? registers[source] : memory();
+            result += L" <- ";
+            result += registers[target];
+        } else if (instruction.opcode == 0x8d && hasOperand) {
+            result += L"address ";
+            result += registers[target];
+            result += L" <- ";
+            result += memory();
+        } else if (instruction.opcode == 0x85 && hasOperand) {
+            result += L"test ";
+            result += registers[target];
+            result += L" with ";
+            result += instruction.modrm_mod == 3 ? registers[source] : memory();
+        } else if ((instruction.opcode == 0x83 || instruction.opcode == 0x81) && hasOperand) {
+            result += instruction.modrm_reg == 7 ? L"compare " :
+                      instruction.modrm_reg == 0 ? L"add " :
+                      instruction.modrm_reg == 5 ? L"subtract " : L"arithmetic ";
+            result += instruction.modrm_mod == 3 ? registers[source] : memory();
+            if (instruction.flags & F_IMM8) result += L" constant=" + std::to_wstring(static_cast<std::int8_t>(instruction.imm.imm8));
+            else if (instruction.flags & F_IMM32) result += L" constant=" + std::to_wstring(static_cast<std::int32_t>(instruction.imm.imm32));
         } else if (instruction.opcode == 0xc3 || instruction.opcode == 0xc2) {
             result += L"return";
         } else if (instruction.opcode == 0xe9 || instruction.opcode == 0xeb ||
@@ -161,20 +202,29 @@ std::wstring task_items_diagnostic(const unsigned char* code) {
             result += L"jump";
         } else if (instruction.opcode == 0xe8) {
             result += L"call";
-        } else if (instruction.opcode == 0x85 || instruction.opcode == 0xa9) {
+        } else if (instruction.opcode == 0xa9) {
             result += L"test";
         } else if (instruction.opcode == 0x74 || instruction.opcode == 0x75 ||
                    (instruction.opcode == 0x0f && instruction.opcode2 >= 0x80 && instruction.opcode2 <= 0x8f)) {
             result += L"conditional branch";
+            const auto distance = (instruction.flags & F_IMM8)
+                ? static_cast<std::int64_t>(static_cast<std::int8_t>(instruction.imm.imm8))
+                : static_cast<std::int64_t>(static_cast<std::int32_t>(instruction.imm.imm32));
+            const auto destination = static_cast<std::int64_t>(cursor + length) + distance;
+            result += L" to at+" + std::to_wstring(destination);
+            if (destination > 0 && destination < 80)
+                forwardBranchTarget = (std::max)(forwardBranchTarget, static_cast<std::size_t>(destination));
         } else if (instruction.opcode == 0x90 || instruction.opcode == 0xcc) {
             result += L"padding";
         } else {
-            result += L"other instruction";
+            result += L"other instruction length=" + std::to_wstring(length);
         }
         result += L"]";
         cursor += length;
-        if (instruction.opcode == 0xc3 || instruction.opcode == 0xc2 || instruction.opcode == 0xe9 ||
-            instruction.opcode == 0xeb) break;
+        if (instruction.opcode == 0xc3 || instruction.opcode == 0xc2) {
+            if (++returns == 2 || cursor >= forwardBranchTarget) break;
+        }
+        if (instruction.opcode == 0xe9 || instruction.opcode == 0xeb) break;
     }
     return result;
 }

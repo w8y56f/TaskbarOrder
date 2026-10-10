@@ -87,6 +87,9 @@ add_executable(TaskbarOrder WIN32
 target_link_libraries(TaskbarOrder PRIVATE taskbar_common dbghelp winhttp comctl32)
 if(MSVC)
   target_compile_options(TaskbarOrder PRIVATE /W4 /EHsc)
+  # The executable embeds its configured manifest through TaskbarOrder.rc.
+  # Disable MSVC's generated manifest to avoid two RT_MANIFEST resources.
+  target_link_options(TaskbarOrder PRIVATE /MANIFEST:NO)
 elseif(MINGW)
   target_link_options(TaskbarOrder PRIVATE -municode)
 endif()

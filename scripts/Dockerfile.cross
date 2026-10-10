@@ -1,0 +1,12 @@
+FROM debian:bookworm-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       cmake \
+       file \
+       g++-mingw-w64-x86-64-posix \
+       ninja-build \
+       zip \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src

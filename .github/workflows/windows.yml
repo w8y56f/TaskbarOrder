@@ -1,0 +1,21 @@
+name: Build Windows prototype
+on:
+  workflow_dispatch:
+  push:
+    paths: ['src/**', 'tests/**', 'third_party/**', 'CMakeLists.txt', 'scripts/**', '.github/workflows/windows.yml']
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile, test and package
+        shell: pwsh
+        run: ./scripts/build-windows.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TaskbarOrder-x64-experimental
+          path: dist/TaskbarOrder-x64.zip
+          if-no-files-found: error

@@ -1,0 +1,32 @@
+# Build and release output
+/build*/
+/cmake-build-*/
+/dist/
+/out/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CTestTestfile.cmake
+compile_commands.json
+*.o
+*.obj
+*.pdb
+*.ilk
+*.exe
+*.dll
+
+# Downloaded symbols and runtime diagnostics
+/symbols/
+/diagnostics/
+
+# Editor and operating-system files
+.DS_Store
+.idea/
+.vs/
+.vscode/
+*.user
+CMakeUserPresets.json
+
+# Python cache
+__pycache__/
+*.py[cod]

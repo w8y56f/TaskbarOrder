@@ -18,7 +18,7 @@ The engine uses statically linked MinHook. On the classic path it hooks the thum
 - The controller's enable event resets on failed activation, cancellation, stop and close. The engine also checks the controller process handle before a drag.
 - Disabling stops custom behavior. Hook code/trampolines remain resident until Explorer exits. No unsafe hot-unload is attempted.
 - Explorer restart is detected by the controller; reactivation is explicit.
-- There is no startup task, service, driver, UAC elevation, global process injector, executable disguise or security-product workaround.
+- Optional logon start uses the current user's `Run` registry entry and launches the controller into the notification area. It tries to enable from an existing matching symbol plan without downloading PDBs. No service, driver, UAC elevation, global process injector, executable disguise or security-product workaround is involved.
 
 ## Compatibility boundaries
 

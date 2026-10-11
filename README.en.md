@@ -90,6 +90,8 @@ The UI currently uses Chinese labels; English descriptions are provided below.
 
 Click **停用调序 (Disable reordering)** to stop reordering. Minimizing or clicking × hides the window in the notification area and leaves it running. Double-click that icon to restore the window. Use **设置 → 退出 (Settings → Exit)** or the notification-area context menu to quit completely.
 
+Check **设置 → 登录 Windows 时启动 (Settings → Start when signing in to Windows)** to launch in the notification area when the current user signs in. If matching symbols are already cached, the application tries to enable reordering automatically; it does not download symbols on startup. Uncheck the option to disable it. The setting stores the EXE's absolute path, so keep the extracted folder in place, or re-enable the option after moving it. If the taskbar is not ready at sign-in, the application retries briefly; open the window from the notification area to see the result.
+
 **设置 → 关于 (Settings → About)** displays the application name, version, build commit ID, and “Powered by Stone Wang”.
 
 Logs and symbols are stored in `%LOCALAPPDATA%\TaskbarOrder`; **打开日志 (Open logs)** opens that directory. Environment reports do not include window titles, document contents, or a full process list.

@@ -110,7 +110,7 @@ add_executable(TaskbarOrder WIN32
   src/controller/symbols.cpp
   "${TASKBAR_ORDER_GENERATED_DIR}/TaskbarOrder.rc"
 )
-target_link_libraries(TaskbarOrder PRIVATE taskbar_common dbghelp winhttp comctl32)
+target_link_libraries(TaskbarOrder PRIVATE taskbar_common dbghelp winhttp comctl32 advapi32)
 if(MSVC)
   target_compile_options(TaskbarOrder PRIVATE /W4 /EHsc)
   # The executable embeds its configured manifest through TaskbarOrder.rc.

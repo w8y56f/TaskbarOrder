@@ -14,17 +14,57 @@
 namespace {
 using namespace tbo;
 constexpr UINT kProgress = WM_APP + 1, kDone = WM_APP + 2, kTray = WM_APP + 3;
-constexpr int kInspect = 101, kPrepare = 102, kStart = 103, kStop = 104, kLogs = 105, kShow = 106, kExit = 107, kAbout = 108;
+constexpr int kInspect = 101, kPrepare = 102, kStart = 103, kStop = 104, kLogs = 105, kShow = 106, kExit = 107, kAbout = 108, kStartup = 109;
 constexpr int kAppIcon = 201;
+constexpr wchar_t kStartupKey[] = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+constexpr wchar_t kStartupValue[] = L"TaskbarOrder";
 HWND mainWindow{}, output{};
+HMENU settingsMenu{};
 HICON appIcon{}, smallIcon{};
 std::thread worker;
 std::atomic<bool> canceled{};
-bool busy{}, closing{}, activeEngine{}, trayPresent{};
+bool busy{}, closing{}, activeEngine{}, trayPresent{}, startupLaunch{}, startupPending{};
+unsigned startupRetries{};
+unsigned trayRetries{};
 DWORD activePid{};
 HFONT font{};
 HANDLE enableEvent{};
 std::wstring report;
+
+std::wstring startup_command() {
+    std::wstring path(32768, L'\0');
+    const auto length = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
+    if (!length || length >= path.size()) throw std::runtime_error("Cannot determine executable path");
+    path.resize(length);
+    return L"\"" + path + L"\" /startup";
+}
+bool startup_enabled() {
+    std::wstring value(32768, L'\0');
+    DWORD size = static_cast<DWORD>(value.size() * sizeof(wchar_t));
+    const LONG result = RegGetValueW(HKEY_CURRENT_USER, kStartupKey, kStartupValue,
+                                     RRF_RT_REG_SZ, nullptr, value.data(), &size);
+    if (result != ERROR_SUCCESS || size < sizeof(wchar_t)) return false;
+    value.resize(size / sizeof(wchar_t) - 1);
+    return _wcsicmp(value.c_str(), startup_command().c_str()) == 0;
+}
+void set_startup(bool enabled) {
+    if (enabled) {
+        const auto command = startup_command();
+        HKEY key{};
+        LONG result = RegCreateKeyExW(HKEY_CURRENT_USER, kStartupKey, 0, nullptr,
+                                      0, KEY_SET_VALUE, nullptr, &key, nullptr);
+        if (result != ERROR_SUCCESS) throw std::runtime_error("Cannot open current-user startup settings: " + std::to_string(result));
+        result = RegSetValueExW(key, kStartupValue, 0, REG_SZ,
+                                reinterpret_cast<const BYTE*>(command.c_str()),
+                                static_cast<DWORD>((command.size() + 1) * sizeof(wchar_t)));
+        RegCloseKey(key);
+        if (result != ERROR_SUCCESS) throw std::runtime_error("Cannot save startup settings: " + std::to_string(result));
+    } else {
+        const LONG result = RegDeleteKeyValueW(HKEY_CURRENT_USER, kStartupKey, kStartupValue);
+        if (result != ERROR_SUCCESS && result != ERROR_FILE_NOT_FOUND)
+            throw std::runtime_error("Cannot remove startup setting: " + std::to_string(result));
+    }
+}
 
 std::wstring widen(const char* text) {
     const int count = MultiByteToWideChar(CP_UTF8, 0, text, -1, nullptr, 0);
@@ -185,11 +225,13 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
     switch (message) {
     case WM_CREATE: {
         mainWindow = window;
-        HMENU menu = CreateMenu(), settings = CreatePopupMenu();
-        AppendMenuW(settings, MF_STRING, kAbout, L"关于(&A)…");
-        AppendMenuW(settings, MF_SEPARATOR, 0, nullptr);
-        AppendMenuW(settings, MF_STRING, kExit, L"退出(&X)");
-        AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(settings), L"设置(&S)");
+        HMENU menu = CreateMenu(); settingsMenu = CreatePopupMenu();
+        AppendMenuW(settingsMenu, MF_STRING | (startup_enabled() ? MF_CHECKED : 0), kStartup, L"登录 Windows 时启动(&S)");
+        AppendMenuW(settingsMenu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(settingsMenu, MF_STRING, kAbout, L"关于(&A)…");
+        AppendMenuW(settingsMenu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(settingsMenu, MF_STRING, kExit, L"退出(&X)");
+        AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(settingsMenu), L"设置(&S)");
         SetMenu(window, menu);
         SendMessageW(window, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(smallIcon));
         SendMessageW(window, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(appIcon));
@@ -203,7 +245,7 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         output = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL,
                                  0, 0, 0, 0, window, nullptr, nullptr, nullptr);
         SendMessageW(output, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-        append(std::wstring(L"TaskbarOrder ") + kVersion + L" — 实验原型\r\n首次：检测环境 → 准备符号 → 启用调序。以后缓存匹配时，直接启用即可。\r\n当前目标：Win11 x64 原生任务栏；悬停应用图标后，在弹出的预览中用左键拖动卡片调序。\r\n已加入经典预览和 25H2/XAML 预览两条路径；你的 26200.9445 将使用后者。最小化或点击 × 会收进通知区域；从“设置 → 退出”或托盘菜单退出会停用调序。\r\n");
+        append(std::wstring(L"TaskbarOrder ") + kVersion + L" — 实验原型\r\n首次：检测环境 → 准备符号 → 启用调序。以后缓存匹配时，直接启用即可。\r\n当前目标：Win11 x64 原生任务栏；悬停应用图标后，在弹出的预览中用左键拖动卡片调序。\r\n已加入经典预览和 25H2/XAML 预览两条路径；你的 26200.9445 将使用后者。最小化或点击 × 会收进通知区域；从“设置 → 退出”或托盘菜单退出会停用调序。可在“设置”中选择登录 Windows 时启动。\r\n");
         buttons(); tray(); SetTimer(window, 1, 2000, nullptr);
         PostMessageW(window, WM_COMMAND, kInspect, 0);
         return 0;
@@ -220,6 +262,16 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
             try { ShellExecuteW(window, L"open", data_directory().c_str(), nullptr, nullptr, SW_SHOWNORMAL); } catch (...) {}
         } else if (LOWORD(wp) == kShow) { ShowWindow(window, SW_RESTORE); SetForegroundWindow(window); }
         else if (LOWORD(wp) == kAbout) show_about(window);
+        else if (LOWORD(wp) == kStartup) {
+            try {
+                const bool enable = !startup_enabled();
+                set_startup(enable);
+                CheckMenuItem(settingsMenu, kStartup, MF_BYCOMMAND | (enable ? MF_CHECKED : MF_UNCHECKED));
+                append(enable ? L"已设置为登录 Windows 时启动。请保持 EXE 所在目录不变。" : L"已取消登录 Windows 时启动。");
+            } catch (const std::exception& e) {
+                MessageBoxW(window, widen(e.what()).c_str(), L"开机启动设置失败", MB_OK | MB_ICONERROR);
+            }
+        }
         else if (LOWORD(wp) == kExit) request_exit();
         return 0;
     case kProgress: {
@@ -233,6 +285,14 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         if (result->operation == kStop) activeEngine = false;
         append(result->text); buttons(); tray();
         if (closing) finish_close();
+        else if (startupPending && result->operation == kInspect) {
+            if (result->success) begin(kStart);
+            else if (++startupRetries < 10) SetTimer(window, 2, 3000, nullptr);
+            else { startupPending = false; append(L"开机启动时环境检测未成功，请从通知区域打开窗口查看日志。"); }
+        } else if (startupPending && result->operation == kStart) {
+            startupPending = false;
+            if (!result->success) append(L"开机启动后未能启用调序，请从通知区域打开窗口查看日志；如需符号，请手动准备。");
+        }
         return 0;
     }
     case kTray:
@@ -249,6 +309,19 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         }
         return 0;
     case WM_TIMER:
+        if (wp == 2) {
+            KillTimer(window, 2);
+            if (startupPending && !busy && !closing) begin(kInspect);
+            return 0;
+        }
+        if (!trayPresent) {
+            tray();
+            if (!trayPresent && startupLaunch && ++trayRetries >= 10) {
+                startupLaunch = false;
+                ShowWindow(window, SW_RESTORE);
+                append(L"通知区域图标暂不可用，已显示窗口。");
+            }
+        }
         if (activeEngine && !busy) {
             DWORD pid{}; GetWindowThreadProcessId(FindWindowW(L"Shell_TrayWnd", nullptr), &pid);
             if (pid != activePid) {
@@ -267,17 +340,20 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
     case WM_ENDSESSION:
         if (wp) { ResetEvent(enableEvent); canceled = true; tray(true); }
         return 0;
-    case WM_DESTROY: KillTimer(window, 1); PostQuitMessage(0); return 0;
+    case WM_DESTROY: KillTimer(window, 1); KillTimer(window, 2); PostQuitMessage(0); return 0;
     }
     return DefWindowProcW(window, message, wp, lp);
 }
 }
 
-int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
+int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int show) {
+    startupLaunch = commandLine && _wcsicmp(commandLine, L"/startup") == 0;
+    startupPending = startupLaunch;
     SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_SYSTEM32 | LOAD_LIBRARY_SEARCH_APPLICATION_DIR);
     tbo::Handle singleton(CreateMutexW(nullptr, FALSE, tbo::kControllerMutex));
     if (!singleton || GetLastError() == ERROR_ALREADY_EXISTS) {
-        MessageBoxW(nullptr, L"TaskbarOrder 已在运行，请查看托盘。", L"TaskbarOrder", MB_OK); return 0;
+        if (!startupLaunch) MessageBoxW(nullptr, L"TaskbarOrder 已在运行，请查看托盘。", L"TaskbarOrder", MB_OK);
+        return 0;
     }
     tbo::Handle gate(CreateEventW(nullptr, TRUE, FALSE, tbo::enable_event_name(GetCurrentProcessId()).c_str()));
     if (!gate || GetLastError() == ERROR_ALREADY_EXISTS) return 1;
@@ -295,7 +371,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     auto window = CreateWindowW(cls.lpszClassName, title.c_str(), WS_OVERLAPPEDWINDOW,
                                 CW_USEDEFAULT, CW_USEDEFAULT, 860, 500, nullptr, nullptr, instance, nullptr);
     if (!window) return 1;
-    ShowWindow(window, show); UpdateWindow(window);
+    if (!startupLaunch) { ShowWindow(window, show); UpdateWindow(window); }
     MSG message{};
     while (GetMessageW(&message, nullptr, 0, 0) > 0) {
         if (!IsDialogMessageW(window, &message)) { TranslateMessage(&message); DispatchMessageW(&message); }

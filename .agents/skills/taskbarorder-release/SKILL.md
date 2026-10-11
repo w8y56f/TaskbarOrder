@@ -1,6 +1,6 @@
 ---
 name: taskbarorder-release
-description: Build the current TaskbarOrder version on Windows, create its password-protected delivery archive, and publish both assets to a versioned GitHub Release. Use when the user asks to build, package, release, or publish TaskbarOrder.
+description: Build the current TaskbarOrder version on Windows, create its private delivery archive, and publish the release assets. Use when the user asks to build, package, release, or publish TaskbarOrder.
 ---
 
 # TaskbarOrder Release
@@ -91,7 +91,7 @@ Create one GitHub Release against the exact built commit:
 - Notes: bilingual Chinese and English in one release, sharing the same assets.
   Use `docs/RELEASE_NOTES_TEMPLATE.md` as the authoring template. Write equivalent
   changes, upgrade steps, and validation/limitations in both languages, followed
-  by one shared Downloads section with the password, commit, and ZIP SHA-256.
+  by one shared Downloads section with only the public ZIP, commit, and ZIP SHA-256.
   Derive changes from the actual diff since the previous release; distinguish
   build/check results from VDI validation. Replace all placeholders and use
   README links pinned to the new tag. Include both README files in the package.
@@ -105,8 +105,12 @@ notes to a UTF-8 file and pass `--notes-file <path>` instead of `--generate-note
 Keep the release title `TaskbarOrder <version>`; do not create separate language
 releases or duplicate assets.
 
+`to.sa` serves a private, uncommon delivery need. Upload it silently as an
+asset, but never mention or explain it in release notes, README files, public
+documentation, or ordinary user-facing release reports. Never publish its
+password. Only discuss the asset or password when the user explicitly asks.
+
 After publishing, use `gh release view` to verify the tag, target, release URL,
-and both asset names. Report the release URL, commit SHA, ZIP SHA-256, and that
-`to.sa` uses the requested password. If creation or upload fails, keep the
-local artifacts and report the exact partial state; do not silently retry by
-deleting or replacing remote objects.
+and both asset names. Report the release URL, commit SHA, and ZIP SHA-256. If
+creation or upload fails, keep the local artifacts and report the exact partial
+state; do not silently retry by deleting or replacing remote objects.

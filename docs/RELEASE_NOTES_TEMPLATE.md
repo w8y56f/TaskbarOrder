@@ -46,7 +46,5 @@ files at the release tag, so later edits do not change the release's instruction
 ## 下载 / Downloads
 
 - `TaskbarOrder-<version>-win11-x64.zip` — 便携包 / Portable package.
-- `to.sa` — 同一 ZIP 的加密 7z 包；使用 7-Zip 打开，必要时改名为 `.7z`。 / An encrypted 7z archive containing the same ZIP; open with 7-Zip, renaming to `.7z` if needed.
-- 密码 / Password: `Abc*123`
 - Commit: `<full commit SHA>`
 - ZIP SHA-256: `<SHA-256>`

@@ -14,8 +14,10 @@
 namespace {
 using namespace tbo;
 constexpr UINT kProgress = WM_APP + 1, kDone = WM_APP + 2, kTray = WM_APP + 3;
-constexpr int kInspect = 101, kPrepare = 102, kStart = 103, kStop = 104, kLogs = 105, kShow = 106, kExit = 107;
+constexpr int kInspect = 101, kPrepare = 102, kStart = 103, kStop = 104, kLogs = 105, kShow = 106, kExit = 107, kAbout = 108;
+constexpr int kAppIcon = 201;
 HWND mainWindow{}, output{};
+HICON appIcon{}, smallIcon{};
 std::thread worker;
 std::atomic<bool> canceled{};
 bool busy{}, closing{}, activeEngine{}, trayPresent{};
@@ -48,7 +50,7 @@ void tray(bool remove = false) {
     if (remove) { Shell_NotifyIconW(NIM_DELETE, &icon); trayPresent = false; return; }
     icon.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
     icon.uCallbackMessage = kTray;
-    icon.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
+    icon.hIcon = smallIcon;
     wcscpy_s(icon.szTip, activeEngine ? L"TaskbarOrder — 调序已启用" : L"TaskbarOrder — 未启用");
     trayPresent = Shell_NotifyIconW(trayPresent ? NIM_MODIFY : NIM_ADD, &icon) != FALSE;
 }
@@ -98,7 +100,7 @@ std::wstring send_command(const Environment& env, Command command, const Plan& p
 }
 
 void begin(int operation) {
-    if (busy) return;
+    if (busy || closing) return;
     if (operation == kStop) ResetEvent(enableEvent);
     busy = true; canceled = false; buttons();
     append(operation == kPrepare ? L"准备符号：首次需要访问 Microsoft 符号服务器；缓存匹配后可离线启用。" : L"正在处理 …");
@@ -148,6 +150,24 @@ void finish_close() {
     tray(true);
     DestroyWindow(mainWindow);
 }
+void request_exit() {
+    if (closing) return;
+    ResetEvent(enableEvent);
+    closing = true; canceled = true;
+    if (busy) append(L"正在结束当前操作后退出；网络等待可能需要几十秒。");
+    else finish_close();
+}
+void show_about(HWND window) {
+    const std::wstring text = std::wstring(L"TaskbarOrder\r\n\r\n版本：") + kVersion +
+        L"\r\nCommit ID：" + kCommitId + L"\r\n\r\nPowered by Stone Wang";
+    MSGBOXPARAMSW box{sizeof(box)};
+    box.hwndOwner = window;
+    box.hInstance = GetModuleHandleW(nullptr);
+    box.lpszText = text.c_str(); box.lpszCaption = L"关于 TaskbarOrder";
+    box.dwStyle = MB_OK | MB_USERICON;
+    box.lpszIcon = MAKEINTRESOURCEW(kAppIcon);
+    MessageBoxIndirectW(&box);
+}
 void layout(HWND window) {
     RECT r{}; GetClientRect(window, &r);
     const int margin = 14, height = 34;
@@ -157,10 +177,22 @@ void layout(HWND window) {
 }
 LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
     static const UINT taskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
-    if (message == taskbarCreated) { trayPresent = false; tray(); }
+    if (message == taskbarCreated) {
+        trayPresent = false; tray();
+        if (!trayPresent) ShowWindow(window, SW_RESTORE);
+        return 0;
+    }
     switch (message) {
     case WM_CREATE: {
         mainWindow = window;
+        HMENU menu = CreateMenu(), settings = CreatePopupMenu();
+        AppendMenuW(settings, MF_STRING, kAbout, L"关于(&A)…");
+        AppendMenuW(settings, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(settings, MF_STRING, kExit, L"退出(&X)");
+        AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(settings), L"设置(&S)");
+        SetMenu(window, menu);
+        SendMessageW(window, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(smallIcon));
+        SendMessageW(window, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(appIcon));
         font = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
         const wchar_t* labels[]{L"检测环境", L"准备符号", L"启用调序", L"停用调序", L"打开日志"};
         for (int i = 0; i < 5; ++i) {
@@ -171,7 +203,7 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         output = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL,
                                  0, 0, 0, 0, window, nullptr, nullptr, nullptr);
         SendMessageW(output, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-        append(std::wstring(L"TaskbarOrder ") + kVersion + L" — 实验原型\r\n首次：检测环境 → 准备符号 → 启用调序。以后缓存匹配时，直接启用即可。\r\n当前目标：Win11 x64 原生任务栏；悬停应用图标后，在弹出的预览中用左键拖动卡片调序。\r\n已加入经典预览和 25H2/XAML 预览两条路径；你的 26200.9445 将使用后者。最小化会收进托盘；关闭程序会停用调序。\r\n");
+        append(std::wstring(L"TaskbarOrder ") + kVersion + L" — 实验原型\r\n首次：检测环境 → 准备符号 → 启用调序。以后缓存匹配时，直接启用即可。\r\n当前目标：Win11 x64 原生任务栏；悬停应用图标后，在弹出的预览中用左键拖动卡片调序。\r\n已加入经典预览和 25H2/XAML 预览两条路径；你的 26200.9445 将使用后者。最小化或点击 × 会收进通知区域；从“设置 → 退出”或托盘菜单退出会停用调序。\r\n");
         buttons(); tray(); SetTimer(window, 1, 2000, nullptr);
         PostMessageW(window, WM_COMMAND, kInspect, 0);
         return 0;
@@ -187,7 +219,8 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         else if (LOWORD(wp) == kLogs) {
             try { ShellExecuteW(window, L"open", data_directory().c_str(), nullptr, nullptr, SW_SHOWNORMAL); } catch (...) {}
         } else if (LOWORD(wp) == kShow) { ShowWindow(window, SW_RESTORE); SetForegroundWindow(window); }
-        else if (LOWORD(wp) == kExit) PostMessageW(window, WM_CLOSE, 0, 0);
+        else if (LOWORD(wp) == kAbout) show_about(window);
+        else if (LOWORD(wp) == kExit) request_exit();
         return 0;
     case kProgress: {
         std::unique_ptr<std::wstring> text(reinterpret_cast<std::wstring*>(lp)); append(*text); return 0;
@@ -208,6 +241,7 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
             HMENU menu = CreatePopupMenu();
             AppendMenuW(menu, MF_STRING, kShow, L"显示窗口");
             AppendMenuW(menu, MF_STRING | ((activeEngine && !busy) ? 0 : MF_GRAYED), kStop, L"停用调序");
+            AppendMenuW(menu, MF_STRING, kAbout, L"关于 TaskbarOrder");
             AppendMenuW(menu, MF_STRING, kExit, L"退出");
             POINT pos{}; GetCursorPos(&pos); SetForegroundWindow(window);
             TrackPopupMenu(menu, TPM_RIGHTBUTTON, pos.x, pos.y, 0, window, nullptr);
@@ -224,10 +258,14 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         }
         return 0;
     case WM_CLOSE:
-        ResetEvent(enableEvent);
-        closing = true; canceled = true;
-        if (busy) append(L"正在结束当前操作后退出；网络等待可能需要几十秒。");
-        else finish_close();
+        tray();
+        if (trayPresent) ShowWindow(window, SW_HIDE);
+        else MessageBoxW(window, L"暂时无法显示通知区域图标，窗口将保持打开。可通过“设置 → 退出”结束程序。", L"TaskbarOrder", MB_OK | MB_ICONINFORMATION);
+        return 0;
+    case WM_QUERYENDSESSION:
+        return TRUE;
+    case WM_ENDSESSION:
+        if (wp) { ResetEvent(enableEvent); canceled = true; tray(true); }
         return 0;
     case WM_DESTROY: KillTimer(window, 1); PostQuitMessage(0); return 0;
     }
@@ -247,7 +285,11 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     WNDCLASSW cls{}; cls.lpfnWndProc = window_proc; cls.hInstance = instance;
     cls.lpszClassName = L"TaskbarOrder.Controller"; cls.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-    cls.hIcon = LoadIconW(nullptr, IDI_APPLICATION); cls.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+    appIcon = static_cast<HICON>(LoadImageW(instance, MAKEINTRESOURCEW(kAppIcon), IMAGE_ICON,
+        GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON), LR_SHARED));
+    smallIcon = static_cast<HICON>(LoadImageW(instance, MAKEINTRESOURCEW(kAppIcon), IMAGE_ICON,
+        GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), LR_SHARED));
+    cls.hIcon = appIcon; cls.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
     RegisterClassW(&cls);
     const std::wstring title = std::wstring(L"TaskbarOrder ") + tbo::kVersion + L" — 独立任务栏调序原型";
     auto window = CreateWindowW(cls.lpszClassName, title.c_str(), WS_OVERLAPPEDWINDOW,

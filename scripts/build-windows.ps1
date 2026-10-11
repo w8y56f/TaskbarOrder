@@ -56,9 +56,10 @@ try {
     # Include corresponding source alongside this GPL prototype distribution.
     $sourceDir = Join-Path $distDir 'source'
     New-Item -ItemType Directory -Force $sourceDir | Out-Null
-    foreach ($item in @('VERSION', 'CMakeLists.txt', 'LICENSE', 'README.md', 'THIRD_PARTY_NOTICES.md', 'src', 'tests', 'scripts', 'docs', 'third_party')) {
+    foreach ($item in @('VERSION', 'CMakeLists.txt', 'LICENSE', 'README.md', 'README.en.md', 'THIRD_PARTY_NOTICES.md', 'src', 'tests', 'scripts', 'docs', 'third_party')) {
         Copy-Item -Path (Join-Path $projectRoot $item) -Destination $sourceDir -Recurse -Force
     }
+    Copy-Item (Join-Path $distDir 'BUILD_COMMIT') (Join-Path $sourceDir 'BUILD_COMMIT')
     $zip = Join-Path $projectRoot "dist/$packageName.zip"
     Compress-Archive -Path (Join-Path $distDir '*') -DestinationPath $zip -Force
     Write-Host "TaskbarOrder $version portable package: $zip"

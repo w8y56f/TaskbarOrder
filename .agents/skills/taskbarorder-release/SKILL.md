@@ -88,12 +88,22 @@ Create one GitHub Release against the exact built commit:
 - Assets:
   - `TaskbarOrder-<version>-win11-x64.zip`
   - `to.sa`
-- Notes: GitHub generated notes, supplemented only when the user provides
-  release notes.
+- Notes: bilingual Chinese and English in one release, sharing the same assets.
+  Use `docs/RELEASE_NOTES_TEMPLATE.md` as the authoring template. Write equivalent
+  changes, upgrade steps, and validation/limitations in both languages, followed
+  by one shared Downloads section with the password, commit, and ZIP SHA-256.
+  Derive changes from the actual diff since the previous release; distinguish
+  build/check results from VDI validation. Replace all placeholders and use
+  README links pinned to the new tag. Include both README files in the package.
+  This format applies to future releases; edit historical release notes only
+  when the user requests it.
 
 The ZIP is uploaded from inside its same-named staging directory. Use
 `gh release create` with an explicit target commit so the release and tag refer
-to the commit that produced the workflow artifact.
+to the commit that produced the workflow artifact. Save the finished bilingual
+notes to a UTF-8 file and pass `--notes-file <path>` instead of `--generate-notes`.
+Keep the release title `TaskbarOrder <version>`; do not create separate language
+releases or duplicate assets.
 
 After publishing, use `gh release view` to verify the tag, target, release URL,
 and both asset names. Report the release URL, commit SHA, ZIP SHA-256, and that

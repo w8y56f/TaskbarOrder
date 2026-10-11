@@ -2,6 +2,7 @@
 #pragma once
 
 namespace tbo {
+inline constexpr wchar_t kCommitId[] = L"@TASKBAR_ORDER_COMMIT@";
 inline constexpr wchar_t kVersion[] = L"@PROJECT_VERSION@";
 inline constexpr wchar_t kCommandMessage[] = L"TaskbarOrder.@PROJECT_VERSION@.Command";
 inline constexpr wchar_t kHookFile[] = L"TaskbarOrderHook-@PROJECT_VERSION@.dll";
